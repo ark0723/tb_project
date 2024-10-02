@@ -1,0 +1,13 @@
+services:
+  app:
+    build: 
+      context: ./tb
+    container_name: tb_python
+    volumes:
+      - ./tb/app:/app # Map app directory to /app in container
+      - ./tb/image:/app/image # Map image directory to /app/image in container
+    ports:
+      - "8000:8000" 
+    command: >
+      bash -c "python run.py"
+

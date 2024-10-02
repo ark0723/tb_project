@@ -1,0 +1,9 @@
+opencv-contrib-python==4.10.0.84
+numpy==1.26.4
+pupil-apriltags==1.0.4.post10
+matplotlib==3.7.1
+Pillow==9.5.0
+scikit-learn==1.3.2
+tensorflow==2.17.0
+pandas==2.1.4
+keras==3.4.1
