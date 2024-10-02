@@ -2,6 +2,7 @@ import os
 import logging
 import shutil
 import cv2
+import numpy as np
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -14,8 +15,18 @@ def create_folders(folder_names, parent_dir):
         os.makedirs(folder_path, exist_ok=True)
 
 
-def save_image(image, directory, filename):
-    cv2.imwrite(os.path.join(directory, filename), image)
+def get_image_list(root_dir):
+    """Get all image files in root_dir with their full paths"""
+    file_list = []
+
+    # Walk through the directory
+    for dirpath, foldernames, filenames in os.walk(root_dir):
+        for filename in filenames:
+            extension = os.path.splitext(filename)[1].lower()
+            if extension in (".png", ".jpg", ".jpeg"):
+                # Construct full path to the file
+                file_list.append(os.path.join(dirpath, filename))
+    return file_list
 
 
 def move_to_folder(current_path, new_folder_path, file):
@@ -29,3 +40,49 @@ def move_to_folder(current_path, new_folder_path, file):
 
     logging.info(f"Moving {current_path} to {new_file_path}")
     shutil.move(current_path, new_file_path)
+
+
+def save_image(image, directory, filename):
+    cv2.imwrite(os.path.join(directory, filename), image)
+
+
+def deskew_image(image_path, output_path=None):
+    # Load the image in grayscale mode (ensure single-channel)
+    gray = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+
+    if gray is None:
+        raise FileNotFoundError(f"Cannot load image from {image_path}")
+
+    # Apply binary thresholding with Otsu's method
+    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+    # Find the coordinates of non-zero pixels (where the binary image is white)
+    coords = np.column_stack(np.where(binary > 0))
+
+    # Get the angle of the minimum area rectangle enclosing those points
+    angle = cv2.minAreaRect(coords)[-1]
+
+    # Adjust the angle for proper deskewing
+    if angle < -45:
+        angle = -(90 + angle)
+    else:
+        angle = -angle
+
+    # Get the image size and calculate the center
+    (h, w) = gray.shape[:2]
+    center = (w // 2, h // 2)
+
+    # Calculate the rotation matrix
+    M = cv2.getRotationMatrix2D(center, angle, 1.0)
+
+    # Perform the affine transformation (rotate the image)
+    rotated = cv2.warpAffine(
+        gray, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE
+    )
+
+    # Save the output image if the path is provided
+    if output_path:
+        cv2.imwrite(output_path, rotated)
+
+    # Return the deskewed image
+    return rotated

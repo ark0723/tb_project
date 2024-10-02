@@ -1,6 +1,7 @@
 import os
 import logging
 import cv2
+import inspect
 import numpy as np
 from data import positions_map, rules_map
 from pupil_apriltags import Detector
@@ -22,17 +23,24 @@ class ImageProcessor:
 
     def classify_and_preprocess(self, file):
         """Classify image based on AprilTag and preprocess it."""
+
+        print(f"Processing {file}")
+
         img_path = os.path.join(self.root_dir, file)
+        if not os.path.exists(img_path):
+            logging.error(f"File does not exist: {img_path}")
+            return
+
         img_gray = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
 
         if img_gray is None:
-            logging.error(f"Error loading image {img_path}")
+            logging.error(f"Invalid image {img_path}")
             return
 
         # AprilTag detection
         result = self.detector.detect(img_gray)
 
-        if result:
+        if result and len(result) > 0:
             tag_id = result[0].tag_id
             new_folder_path, form_type = self.get_form_folder(tag_id)
 
@@ -74,10 +82,16 @@ class ImageProcessor:
         resized_img = self.resize(
             detected_positions, img_gray, h, w, file_dir, file, save
         )
-        self.extract_bounding_boxes(resized_img, file_dir, form_type, save=save)
+        if resized_img is not None:
+            self.extract_bounding_boxes(resized_img, file_dir, form_type, save=save)
 
     def resize(self, detected_positions, img_gray, h, w, file_dir, file, save=True):
         """Handle the affine or perspective transformation based on detected positions."""
+        if len(detected_positions) < 3:
+            logging.error(
+                f"Not enough tags detected for transformation in {file}. Minimum 3 required, but found {len(detected_positions)}."
+            )
+            return None  # Exit early if there are not enough tags
         pts1, pts2 = self.get_transformation_points(detected_positions)
 
         if pts1 is not None and pts2 is not None:
@@ -124,9 +138,13 @@ class ImageProcessor:
                 if width_range[0] <= w <= width_range[1]:
                     conditions_met = all(
                         (
-                            condition(x, y)
-                            if len(condition.__code__.co_varnames) == 2
-                            else condition(x)
+                            condition(x, y, h)
+                            if len(inspect.signature(condition).parameters) == 3
+                            else (
+                                condition(x, y)
+                                if len(inspect.signature(condition).parameters) == 2
+                                else condition(x)
+                            )
                         )
                         for condition in properties[1:]
                     )
@@ -217,7 +235,7 @@ class ImageProcessor:
             (410, 411, 412, 413): "TS04",
             (510, 511, 512, 513): "TS05A",
             (520, 521, 522, 523): "TS05B",
-            (610, 611, 612, 613): "TS06",
+            (60, 61, 62, 63): "TS06",
         }
 
         for tag_ids, folder in tag_to_folder.items():
@@ -296,7 +314,7 @@ class ImageProcessor:
                 pts2 = np.float32([[120, 160], [2300, 160], [120, 3300]])
         else:
             logging.error("Not enough tags detected for transformation")
-            return None, None
+            return
         return pts1, pts2
 
     def get_position_by_form_type(self, form_type):
@@ -313,7 +331,8 @@ class ImageProcessor:
         }
 
         if form_type not in form_to_tag:
-            raise ValueError(f"Invalid form type: {form_type}")
+            logging.error(f"Invalid form type: {form_type}")
+            return {}
 
         position = {
             form_to_tag[form_type][0]: "top_left",
@@ -323,3 +342,16 @@ class ImageProcessor:
         }
 
         return position
+
+    def process_files_in_parallel(self, files, max_workers=4):
+        """Process multiple files in parallel."""
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(self.classify_and_preprocess, file) for file in files
+            ]
+
+            for future in futures:
+                try:
+                    future.result()  # raise any exceptions encountered during processing
+                except Exception as e:
+                    logging.error(f"Error processing file: {e}")
