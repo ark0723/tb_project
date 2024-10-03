@@ -3,51 +3,55 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import logging
-
-# reference
-# https://datascienceschool.net/03%20machine%20learning/03.02.03%20%EC%9D%B4%EB%AF%B8%EC%A7%80%20%EC%BB%A8%ED%88%AC%EC%96%B4.html
-# https://rahites.tistory.com/55
+from utils import extract_path_and_filename, check_formtype_from_path
 
 
 # todo
 # 1. experiment by form type (statistics): bounding box (x,y,h,w) histogram / how many detected by form
-# 2. is it better to detect or using fixed positon
-# 3. test: deskew bounding box
+# 2. is it better to detect or using fixed positon : update ImageProcessor class
+# 3. test: deskew bounding box (Not good)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 
 
 class BoxDetector:
-    def __init__(self, file_dir, file, output_dir="/app/image/output"):
-        self.file_dir = file_dir
-        self.name = file.split(".")[0]
+    def __init__(self, file_path, output_dir=None):
+        self.dir_path, self.file_name = extract_path_and_filename(file_path)
         # self.img = cv2.imread(os.path.join(file_dir, file), cv2.IMREAD_GRAYSCALE)
-        self.img = cv2.imread(os.path.join(file_dir, file))
+        self.img = cv2.imread(file_path)
         self.gray_img = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
-        self.output_dir = output_dir
+        self.output_dir = self.dir_path if output_dir is None else output_dir
 
         if self.img is None:
             logging.error(
-                f"Failed to load image from {os.path.join(file_dir, file)}. Check the file path or file integrity."
+                f"Failed to load image from {file_path}. Check the file path or file integrity."
             )
-            raise FileNotFoundError(
-                f"Cannot open image: {os.path.join(file_dir, file)}"
-            )
+            raise FileNotFoundError(f"Cannot open image: {file_path}")
 
     @property
     def shape(self):
         return self.img.shape
 
     def threshold(self, type_flag, threshold=130, value=255, block_size=9, C=5):
+        """
+        Apply different types of thresholding on the grayscale image.
+
+        :param type_flag: The type of thresholding ('threshold', 'otsu', 'adaptive')
+        :param threshold: Threshold value for binary thresholding (ignored for Otsu/adaptive)
+        :param value: The value to set for pixels above the threshold
+        :param block_size: Block size for adaptive thresholding
+        :param C: Constant subtracted from the mean in adaptive thresholding
+        :return: Binary image after thresholding
+        """
         if type_flag == "threshold":
             _, img_binary = cv2.threshold(
                 self.gray_img, threshold, value, cv2.THRESH_BINARY
             )
         elif type_flag == "otsu":
-            img_blur = cv2.GaussianBlur(self.gray_img, (3, 3), 0)
+            img_blur = cv2.GaussianBlur(self.gray_img, (5, 5), 0)
             ret, img_binary = cv2.threshold(
-                img_blur, -1, value, cv2.THRESH_BINARY | cv2.THRESH_OTSU
+                img_blur, -1, value, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU
             )
             logging.info(f"Otsu threshold: {ret}")
         elif type_flag == "adaptive":
@@ -69,17 +73,26 @@ class BoxDetector:
         self,
         n_box: int,
         min_box_area: int,
+        form_type: str,
         thresholding=("otsu", 130),
         contour=(cv2.RETR_TREE, cv2.CHAIN_APPROX_TC89_KCOS),
     ):
         """
-        mode exmaples:
+        Detect rectangular boxes in the image.
+
+        :param n_box: Number of boxes to detect
+        :param min_box_area: Minimum area for a box to be considered
+        :param thresholding: Tuple with type of thresholding ('threshold', 'otsu', 'adaptive') and threshold value
+        :param contour: Tuple specifying the contour retrieval mode and approximation method
+        :return: Dictionary with positions of detected boxes
+
+        contour[0] exmaples:
         cv2.RETR_EXTERNAL: 컨투어 라인 중 가장 바깥쪽의 라인만 찾음
         cv2.RETR_LIST: 모든 컨투어 라인을 찾지만, 상하구조(hierachy)관계를 구성하지 않음
         cv2.RETR_CCOMP: 모든 컨투어 라인을 찾고, 상하구조는 2 단계로 구성함
         cv2.RETR_TREE: 모든 컨투어 라인을 찾고, 모든 상하구조를 구성함
 
-        approx exmaples:
+        contour[1] exmaples:
         cv2.CHAIN_APPROX_NONE: 모든 컨투어 포인트를 반환
         cv2.CHAIN_APPROX_SIMPLE: 컨투어 라인을 그릴 수 있는 포인트만 반환
         cv2.CHAIN_APPROX_TC89_L1: Teh_Chin 연결 근사 알고리즘 L1 버전을 적용하여 컨투어 포인트를 줄임
@@ -88,22 +101,61 @@ class BoxDetector:
         type_flag, threshold = thresholding[0], thresholding[1]
         img_binary = self.threshold(type_flag, threshold)
 
+        # Define form-specific lambda functions for boundingRect filtering
+        form_filters = {
+            "TS01": lambda x, y: 200 < y < 400 or 2400 < y < 3200,
+            "TS02A": lambda x, y: 200 < y < 1000
+            or (1800 < x and 1700 < y < 2500)
+            or (y > 3000),
+            "TS02B": lambda x, y: 200 < y < 300
+            or (x > 800 and 400 < y < 550)
+            or (x > 150 and 550 < y < 1100)
+            or (x > 1400 and 1100 < y < 2200)
+            or (x < 1400 and 2000 < y < 2100)
+            or (x < 1400 and 2200 < y < 2300)
+            or (x > 200 and 2400 < y < 3200),
+            "TS03": lambda x, y: 200 < y < 400 or (2400 < y < 2600),
+            "TS04": lambda x, y: 200 < y < 400
+            or (x < 1000 and 700 < y < 2200)
+            or (2500 < y < 3200),
+            "TS05A": lambda x, y: 200 < y < 500
+            or (x > 1800 and 800 < y < 900)
+            or (900 < y < 1000)
+            or (x > 1800 and 1800 < y < 2300)
+            or (x > 1900 and 2600 < y < 2900)
+            or (3100 < y < 3200),
+            "TS05B": lambda x, y: 200 < y < 400
+            or (x > 900 and 500 < y < 600)
+            or (x > 1300 and 1200 < y < 2300)
+            or (2100 < y < 2400),
+            "TS06": lambda x, y: x > 150
+            and 200 < y < 300
+            or (x > 900 and 900 < y < 1100)
+            or (1100 < y < 1200)
+            or (x > 700 and 1200 < y < 2600),
+        }
+
+        # Select the appropriate filter function based on the form type
+        selected_filter = form_filters.get(
+            form_type, lambda x, y: x > 150 and 200 < y < 3200
+        )
+
         # Find contours
         cnts, hierarchy = cv2.findContours(img_binary, contour[0], contour[1])
         logging.info(f"Found {len(cnts)} contours.")
 
-        # Sort contours by area and filter based on both min_box_area and
-        # y position (200 < y < 3200) to exclude apritag contours
+        # Sort contours by area and filter based on both min_box_area
+        # and the selected lambda function
         cnts = sorted(
             [
                 c
                 for c in cnts
                 if cv2.contourArea(c) > min_box_area
-                and 200 < cv2.boundingRect(c)[1] < 3200
+                and selected_filter(cv2.boundingRect(c)[0], cv2.boundingRect(c)[1])
             ],
             key=cv2.contourArea,
             reverse=True,
-        )[1 : n_box + 5]
+        )[:n_box]
         logging.info(
             f"Filtered and sorted {len(cnts)} contours based on area and y position."
         )
@@ -149,7 +201,7 @@ class BoxDetector:
             vertices = cv2.approxPolyDP(c, 0.01 * peri, True)
 
             # We're looking for rectangular boxes (4 vertices)
-            if len(vertices) == 4:
+            if len(vertices) >= 4:
                 x, y, w, h = cv2.boundingRect(c)
 
                 # Draw rectangle on the original image
@@ -173,21 +225,21 @@ class BoxDetector:
                 positions[i] = (x, y, w, h)
                 logging.info(f"Saved box {i} at position {positions[i]}.")
 
-        if self.output_dir is not None:
-            if not os.path.exists(self.output_dir):
-                os.makedirs(self.output_dir)
+        if not os.path.exists(self.output_dir):
+            os.makedirs(self.output_dir)
 
-            # Save the image with bounding boxes drawn
-            cv2.imwrite(
-                os.path.join(self.output_dir, f"{self.name}_box.png"), original_copy
-            )
-            logging.info("Saved image with bounding boxes.")
+        # Save the image with bounding boxes drawn
+        cv2.imwrite(
+            os.path.join(self.output_dir, f"{self.file_name}_box.png"),
+            original_copy,
+        )
+        logging.info("Saved image with bounding boxes.")
 
         return positions
 
 
-def compare_thresholding(file_dir, file, output_dir=None):
-    detector = BoxDetector(file_dir, file, output_dir)
+def compare_thresholding(file_path, output_dir="/app/image/output"):
+    detector = BoxDetector(file_path, output_dir)
 
     # Apply different thresholding techniques
     th1 = detector.threshold(type_flag="threshold")

@@ -1,6 +1,6 @@
-import os
+import os, shutil
+import fnmatch
 import logging
-import shutil
 import cv2
 import numpy as np
 
@@ -15,18 +15,36 @@ def create_folders(folder_names, parent_dir):
         os.makedirs(folder_path, exist_ok=True)
 
 
-def get_image_list(root_dir):
+def get_image_list(root_dir, pattern=None, recursive=False):
     """Get all image files in root_dir with their full paths"""
     file_list = []
 
     # Walk through the directory
-    for dirpath, foldernames, filenames in os.walk(root_dir):
+    for dirpath, foldernames, filenames in os.walk(root_dir, topdown=True):
         for filename in filenames:
             extension = os.path.splitext(filename)[1].lower()
             if extension in (".png", ".jpg", ".jpeg"):
-                # Construct full path to the file
-                file_list.append(os.path.join(dirpath, filename))
+                # Check if the file matches the pattern (if a pattern is provided)
+                if pattern is None or fnmatch.fnmatch(filename, pattern):
+                    # Construct full path to the file
+                    file_list.append(os.path.join(dirpath, filename))
+        if not recursive:
+            break  # If not recursive, stop after the first level
     return file_list
+
+
+def extract_path_and_filename(file_path):
+    """Extract the directory path and file name (without extension) from the given file path."""
+    # Extract the directory path
+    dir_path = os.path.dirname(file_path)
+    # Extract the filename without the extension
+    file_name = os.path.splitext(os.path.basename(file_path))[0]
+    return dir_path, file_name
+
+
+def check_formtype_from_path(file_path, formtype="TS01"):
+    """Check if formtype is present as a directory or file name in the given file path."""
+    return formtype in file_path.split(os.sep)
 
 
 def move_to_folder(current_path, new_folder_path, file):
