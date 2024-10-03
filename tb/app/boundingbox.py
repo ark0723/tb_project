@@ -3,13 +3,13 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import logging
-from utils import extract_path_and_filename, check_formtype_from_path
+from utils import extract_path_and_filename, extract_formtype_from_path
 
 
 # todo
 # 1. experiment by form type (statistics): bounding box (x,y,h,w) histogram / how many detected by form
 # 2. is it better to detect or using fixed positon : update ImageProcessor class
-# 3. test: deskew bounding box (Not good)
+# 3. if save: save cropped bounding boxes else draw boxes on original image
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -18,6 +18,7 @@ logging.basicConfig(level=logging.INFO)
 class BoxDetector:
     def __init__(self, file_path, output_dir=None):
         self.dir_path, self.file_name = extract_path_and_filename(file_path)
+        self.formtype = extract_formtype_from_path(file_path)
         # self.img = cv2.imread(os.path.join(file_dir, file), cv2.IMREAD_GRAYSCALE)
         self.img = cv2.imread(file_path)
         self.gray_img = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
@@ -73,7 +74,6 @@ class BoxDetector:
         self,
         n_box: int,
         min_box_area: int,
-        form_type: str,
         thresholding=("otsu", 130),
         contour=(cv2.RETR_TREE, cv2.CHAIN_APPROX_TC89_KCOS),
     ):
@@ -137,7 +137,7 @@ class BoxDetector:
 
         # Select the appropriate filter function based on the form type
         selected_filter = form_filters.get(
-            form_type, lambda x, y: x > 150 and 200 < y < 3200
+            self.formtype, lambda x, y: x > 150 and 200 < y < 3200
         )
 
         # Find contours
@@ -203,6 +203,8 @@ class BoxDetector:
             # We're looking for rectangular boxes (4 vertices)
             if len(vertices) >= 4:
                 x, y, w, h = cv2.boundingRect(c)
+
+                # todo: save cropped image
 
                 # Draw rectangle on the original image
                 cv2.rectangle(

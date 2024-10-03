@@ -47,6 +47,14 @@ def check_formtype_from_path(file_path, formtype="TS01"):
     return formtype in file_path.split(os.sep)
 
 
+def extract_formtype_from_path(file_path, pattern="TS*"):
+    folders = os.path.normpath(file_path).split(os.sep)
+    found = next(
+        (folder for folder in folders if fnmatch.fnmatch(folder, pattern)), None
+    )
+    return found
+
+
 def move_to_folder(current_path, new_folder_path, file):
     """Move the image file to the correct folder."""
     new_file_path = os.path.join(new_folder_path, file)
