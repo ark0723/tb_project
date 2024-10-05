@@ -340,6 +340,14 @@ class CircleDetector(BoxDetector):
             maxRadius=maxRadius,
         )
 
+        # no circles detected
+        if circles is None:
+            logging.info("No circle detected.")
+            return None
+
+        # convert the (x, y) coordinates and radius of the circles to integers
+        circles = np.round(circles[0, :].astype("int"))
+
         # Define form-specific lambda functions for boundingRect filtering
         form_filters = {
             "TS01": lambda x, y: x > 1400 and 800 < y < 2400,
@@ -394,47 +402,41 @@ class CircleDetector(BoxDetector):
         # Select the appropriate filter function based on the form type
         selected_filter = form_filters.get(self.formtype, lambda x, y: 200 < y < 3200)
 
-        if circles is not None:
-            original_copy = self.img.copy()
-            # convert the (x, y) coordinates and radius of the circles to integers
-            circles = np.round(circles[0, :].astype("int"))
+        # Filter circles based on the selected filter
+        filtered_circles = [(x, y, r) for (x, y, r) in circles if selected_filter(x, y)]
 
-            # Filter circles based on the selected filter
-            filtered_circles = [
-                (x, y, r) for (x, y, r) in circles if selected_filter(x, y)
-            ]
-            # sorted by key(cy, cx)
-            sorted_circles = sorted(
-                filtered_circles, key=lambda circle: (circle[1], circle[0])
-            )
+        # Early return if no circles passed the filter
+        if not filtered_circles:
+            logging.info("No circles passed the filter.")
+            return None
 
-            positions = {}
-            # loop over the (x, y) coordinates and radius of the circles
-            for i, (x, y, r) in enumerate(sorted_circles, 1):
-                positions[i] = (x, y, r)
-                # cv2.circle(img array, center, radius, color, thickness)
-                original_copy = cv2.circle(original_copy, (x, y), r, (0, 255, 0), 2)
-                cv2.putText(
-                    original_copy,
-                    str(i),
-                    (x - 30, y - 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.9,
-                    (255, 0, 0),
-                    2,
-                    cv2.LINE_AA,
-                )
-                logging.info(f"Saved box {i} at position {positions[i]}.")
+        # Create a copy of the original image only if we have circles to draw
+        original_copy = self.img.copy()
 
-            cv2.imwrite(
-                os.path.join(self.output_dir, f"{self.file_name}_circle.png"),
+        positions = {}
+        # loop over the (x, y) coordinates and radius of the circles
+        for i, (x, y, r) in enumerate(filtered_circles, 1):
+            positions[i] = (x, y, r)
+            # cv2.circle(img array, center, radius, color, thickness)
+            cv2.circle(original_copy, (x, y), r, (0, 255, 0), 2)
+            cv2.putText(
                 original_copy,
+                str(i),
+                (x - 30, y - 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.9,
+                (255, 0, 0),
+                2,
+                cv2.LINE_AA,
             )
-            logging.info("Saved image with detected circles.")
-            return positions
-        else:
-            logging.info("No circle detected.")
-            return
+            logging.info(f"Saved box {i} at position {positions[i]}.")
+        # Save the image with detected circles
+        cv2.imwrite(
+            os.path.join(self.output_dir, f"{self.file_name}_circle.png"),
+            original_copy,
+        )
+        logging.info("Saved image with detected circles.")
+        return positions
 
 
 def compare_thresholding(file_path, output_dir="/app/image/output"):
