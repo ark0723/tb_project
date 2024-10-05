@@ -70,7 +70,7 @@ class BoxDetector:
         logging.info(f"Image thresholding method {type_flag} applied.")
         return img_binary
 
-    def detect_boxes(
+    def detect(
         self,
         n_box: int,
         min_box_area: int,
@@ -319,6 +319,122 @@ class BoxDetector:
         logging.info("Saved image with bounding boxes.")
 
         return positions
+
+
+class CircleDetector(BoxDetector):
+
+    def __init__(self, file_path, blur_size=(3, 3), output_dir=None):
+        super().__init__(file_path, output_dir)
+        if blur_size is not None:
+            self.gray_img = cv2.GaussianBlur(self.gray_img, blur_size, 0)
+
+    def detect(self, minDist=20, param1=50, param2=30, minRadius=30, maxRadius=40):
+        circles = cv2.HoughCircles(
+            self.gray_img,
+            cv2.HOUGH_GRADIENT,
+            dp=1,
+            minDist=minDist,
+            param1=param1,
+            param2=param2,
+            minRadius=minRadius,
+            maxRadius=maxRadius,
+        )
+
+        # Define form-specific lambda functions for boundingRect filtering
+        form_filters = {
+            "TS01": lambda x, y: x > 1400 and 800 < y < 2400,
+            "TS02A": lambda x, y: x > 1200
+            and 400 < y < 600
+            or (x < 800 and 700 < y < 800)
+            or (x > 1400 and 750 < y < 1000)
+            or (x < 800 and 1000 < y < 1100)
+            or (x < 1800 and 1150 < y < 1300)
+            or (1300 < y < 1500)
+            or (1500 < y < 1750)
+            or (x < 1200 and 1750 < y < 1900)
+            or (x < 1200 and 1900 < y < 2050)
+            or (x < 1450 and 2050 < y < 2200)
+            or (x < 1450 and 2200 < y < 2400)
+            or (2400 < y < 3150),
+            "TS02B": lambda x, y: 300 < y < 500
+            or (x < 800 and 500 < y < 600)
+            or (x < 1450 and 1150 < y < 2100)
+            or (x < 1450 and 2150 < y < 2200)
+            or (1850 < x < 2000 and 2450 < y < 3300)
+            or (650 < x < 850 and 2450 < y < 3300),
+            "TS03": lambda x, y: x > 1400 and 800 < y < 2800,
+            "TS04": lambda x, y: 400 < y < 650
+            or (x > 1000 and 800 < y < 2250)
+            or (x < 200 and 600 < y < 3000)
+            or (1000 < x < 1400 and 2600 < y < 2750),
+            "TS05A": lambda x, y: 500 < y < 650
+            or (x < 800 and 750 < y < 850)
+            or (1450 < x < 1600 and 800 < y > 1000)
+            or (1000 < y < 1750)
+            or (x < 1200 and 1850 < y < 2100)
+            or (x < 1400 and 2100 < y < 2400)
+            or (2400 < y < 2650)
+            or (1150 < x < 1550 and 2650 < y < 2900)
+            or (2950 < y < 3150),
+            "TS05B": lambda x, y: 400 < y < 550
+            or (x < 800 and 550 < y < 650)
+            or (700 < y < 850)
+            or (1000 < x < 1400 and 1250 < y < 2200)
+            or (1000 < x < 1400 and 2200 < y < 2300)
+            or (x < 300 and 1250 < y < 2300)
+            or (2450 < y < 3000),
+            "TS06": lambda x, y: 400 < y < 1000
+            or (x < 800 and 1000 < y < 1100)
+            or (x < 400 and 1300 < y < 2550)
+            or (x > 1600 and 1400 < y < 1700)
+            or (x > 1850 and 1850 < y < 1950)
+            or (x > 1450 and 2600 < y < 3000),
+        }
+
+        # Select the appropriate filter function based on the form type
+        selected_filter = form_filters.get(self.formtype, lambda x, y: 200 < y < 3200)
+
+        if circles is not None:
+            original_copy = self.img.copy()
+            # convert the (x, y) coordinates and radius of the circles to integers
+            circles = np.round(circles[0, :].astype("int"))
+
+            # Filter circles based on the selected filter
+            filtered_circles = [
+                (x, y, r) for (x, y, r) in circles if selected_filter(x, y)
+            ]
+            # sorted by key(cy, cx)
+            sorted_circles = sorted(
+                filtered_circles, key=lambda circle: (circle[1], circle[0])
+            )
+
+            positions = {}
+            # loop over the (x, y) coordinates and radius of the circles
+            for i, (x, y, r) in enumerate(sorted_circles, 1):
+                positions[i] = (x, y, r)
+                # cv2.circle(img array, center, radius, color, thickness)
+                original_copy = cv2.circle(original_copy, (x, y), r, (0, 255, 0), 2)
+                cv2.putText(
+                    original_copy,
+                    str(i),
+                    (x - 30, y - 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.9,
+                    (255, 0, 0),
+                    2,
+                    cv2.LINE_AA,
+                )
+                logging.info(f"Saved box {i} at position {positions[i]}.")
+
+            cv2.imwrite(
+                os.path.join(self.output_dir, f"{self.file_name}_circle.png"),
+                original_copy,
+            )
+            logging.info("Saved image with detected circles.")
+            return positions
+        else:
+            logging.info("No circle detected.")
+            return
 
 
 def compare_thresholding(file_path, output_dir="/app/image/output"):
