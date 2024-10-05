@@ -8,7 +8,7 @@ from utils import extract_path_and_filename, extract_formtype_from_path
 
 # todo
 # 1. experiment by form type (statistics): bounding box (x,y,h,w) histogram / how many detected by form
-# 2. is it better to detect or using fixed positon : update ImageProcessor class
+# 2. is it better to automatic detect or using fixed positon? : update ImageProcessor class
 # 3. if save: save cropped bounding boxes else draw boxes on original image
 
 # Set up logging
@@ -114,7 +114,7 @@ class BoxDetector:
             or (x < 1400 and 2000 < y < 2100)
             or (x < 1400 and 2200 < y < 2300)
             or (x > 200 and 2400 < y < 3200),
-            "TS03": lambda x, y: 200 < y < 400 or (2400 < y < 2600),
+            "TS03": lambda x, y: 200 < y < 450 or (2400 < y < 2600),
             "TS04": lambda x, y: 200 < y < 400
             or (x < 1000 and 700 < y < 2200)
             or (2500 < y < 3200),
@@ -144,31 +144,32 @@ class BoxDetector:
         cnts, hierarchy = cv2.findContours(img_binary, contour[0], contour[1])
         logging.info(f"Found {len(cnts)} contours.")
 
-        # Sort contours by area and filter based on both min_box_area
-        # and the selected lambda function
-        cnts = sorted(
-            [
-                c
-                for c in cnts
-                if cv2.contourArea(c) > min_box_area
-                and selected_filter(cv2.boundingRect(c)[0], cv2.boundingRect(c)[1])
-            ],
-            key=cv2.contourArea,
-            reverse=True,
+        # Calculate bounding rectangles once and store them for further operations
+        bounding_rects = [cv2.boundingRect(c) for c in cnts]
+
+        # Filter contours by area and form-specific criteria
+        filtered_cnts = [
+            (c, rect)
+            for c, rect in zip(cnts, bounding_rects)
+            if cv2.contourArea(c) > min_box_area and selected_filter(rect[0], rect[1])
+        ]
+
+        # Sort contours by area and limit the number to `n_box`
+        filtered_cnts = sorted(
+            filtered_cnts, key=lambda x: cv2.contourArea(x[0]), reverse=True
         )[:n_box]
         logging.info(
             f"Filtered and sorted {len(cnts)} contours based on area and y position."
         )
 
-        # Remove nested bounding boxes
+        # Nested box removal
         non_nested_cnts = []
-        for i, c in enumerate(cnts):
-            x, y, w, h = cv2.boundingRect(c)
+        for i, (c, rect) in enumerate(filtered_cnts):
+            x, y, w, h = rect
             is_nested = False
-            for j, c2 in enumerate(cnts):
+            for j, (c2, rect2) in enumerate(filtered_cnts):
                 if i != j:
-                    x2, y2, w2, h2 = cv2.boundingRect(c2)
-                    # Check if (x, y, w, h) is inside (x2, y2, w2, h2)
+                    x2, y2, w2, h2 = rect2
                     if (
                         x > x2
                         and y > y2
@@ -176,40 +177,120 @@ class BoxDetector:
                         and (y + h) < (y2 + h2)
                     ):
                         is_nested = True
-                        logging.info(
-                            f"Contour {i} is nested inside contour {j}, skipping."
-                        )
                         break
             if not is_nested:
-                non_nested_cnts.append(c)
+                non_nested_cnts.append((c, rect))
 
-        # sort conours from left-top to right-bottom
-        sorted_cnts = sorted(
-            non_nested_cnts,
-            key=lambda c: (cv2.boundingRect(c)[1], cv2.boundingRect(c)[0]),
-        )
+        form_y_sorters = {
+            "TS01": [(None, 400), (2400, None)],
+            "TS02A": [
+                (None, 400),
+                (400, 850),
+                (850, 1000),
+                (1700, 1950),
+                (2000, 2150),
+                (2150, 2350),
+                (3000, None),
+            ],
+            "TS02B": [
+                (None, 300),
+                (400, 550),
+                (550, 750),
+                (750, 900),
+                (900, 1100),
+                (1100, 1400),
+                (1400, 1600),
+                (1900, 2100),
+                (2100, 2200),
+                (2200, 2300),
+                (2300, None),
+            ],
+            "TS03": [(None, 450), (2400, None)],
+            "TS04": [
+                (None, 350),
+                (350, 1000),
+                (1000, 1500),
+                (1500, 1900),
+                (1900, 2400),
+                (2400, 2800),
+                (2800, None),
+            ],
+            "TS05A": [
+                (None, 300),
+                (300, 500),
+                (750, 900),
+                (900, 1100),
+                (1700, 2000),
+                (2000, 2200),
+                (2200, 2400),
+                (2500, 2900),
+                (2900, None),
+            ],
+            "TS05B": [
+                (None, 400),
+                (400, 700),
+                (1100, 1400),
+                (1400, 1700),
+                (2000, 2250),
+                (2250, None),
+            ],
+            "TS06": [
+                (None, 400),
+                (900, 1100),
+                (1100, 1250),
+                (1250, 1500),
+                (1800, 2200),
+                (2200, None),
+            ],
+        }
+
+        # Select the appropriate y sorter based on the form type
+        selected_y = form_y_sorters.get(self.formtype, None)
+
+        # Function to check if contour belongs to a specific group
+        def in_group(y, group):
+            low, high = group
+            if low is None:
+                return y < high
+            if high is None:
+                return y >= low
+            return low <= y < high
+
+        if selected_y is None:
+            # If no specific y-sorting is defined, sort contours top-left to bottom-right
+            # Sort by y then x
+            sorted_cnts = sorted(non_nested_cnts, key=lambda x: (x[1][1], x[1][0]))
+            logging.info(f"Sorted contours from left-top to right-bottom.")
+        else:
+            # Sort based on y-group and x position within each group
+            sorted_cnts = []
+            for group in selected_y:
+                group_cnts = [
+                    item for item in non_nested_cnts if in_group(item[1][1], group)
+                ]
+                sorted_cnts.extend(
+                    sorted(group_cnts, key=lambda x: x[1][0])
+                )  # Sort by x within the group
+                logging.info(f"Sorted contours into groups based on y and x positions.")
 
         # Dictionary to store box positions
         positions = {}
         original_copy = self.img.copy()
 
-        for i, c in enumerate(sorted_cnts, 1):
+        for i, (c, rect) in enumerate(sorted_cnts, 1):
             # Calculate the perimeter
             peri = cv2.arcLength(c, True)
 
             # Approximate the contour to a polygon
-            vertices = cv2.approxPolyDP(c, 0.01 * peri, True)
+            vertices = cv2.approxPolyDP(c, 0.02 * peri, True)
 
             # We're looking for rectangular boxes (4 vertices)
             if len(vertices) >= 4:
-                x, y, w, h = cv2.boundingRect(c)
-
+                x, y, w, h = rect
                 # todo: save cropped image
 
                 # Draw rectangle on the original image
-                cv2.rectangle(
-                    original_copy, (x, y), (x + w, y + h), (0, 0, 255), 2
-                )  # Red line around boxes
+                cv2.rectangle(original_copy, (x, y), (x + w, y + h), (0, 0, 255), 2)
 
                 # Draw index of the box near the top-left corner of the rectangle
                 # putText(image to draw on, box index, position of the text, font, font scale, text color, thickness, line type)
@@ -271,7 +352,7 @@ def compare_thresholding(file_path, output_dir="/app/image/output"):
 
         # Save the plot to a file instead of displaying it
         output_path = os.path.join(
-            output_dir, f"{detector.name}_threshold_comparison.png"
+            output_dir, f"{detector.file_name}_threshold_comparison.png"
         )
         plt.savefig(output_path)
         plt.close()  # Close the figure to free up memory

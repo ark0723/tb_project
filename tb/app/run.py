@@ -45,7 +45,7 @@ if __name__ == "__main__":
     # processor.process_files_in_parallel(files, max_workers=4)
 
     # test6
-    root_dir = os.path.join("/app/image/TS06")
+    root_dir = os.path.join("/app/image")
     files = get_image_list(root_dir, pattern="resize*", recursive=True)
     min_box_area = 1000
     for file in files:
