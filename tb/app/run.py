@@ -42,21 +42,15 @@ if __name__ == "__main__":
     # processor = ImageProcessor(root_dir=root_dir)
     # processor.process_files_in_parallel(files, max_workers=4)
 
-    # test6
-    # root_dir = os.path.join("/app/image")
-    # files = get_image_list(root_dir, pattern="resize*", recursive=True)
-    # min_box_area = 1000
-    # for file in files:
-    #     detector = BoxDetector(file, output_dir="/app/image/output")
-    #     detector.detect(
-    #         n_box=50,
-    #         min_box_area=min_box_area,
-    #     )
-
     # text7
-    # ts01 / ts04: minRadius = 30, ts03, ts02A, : minR = 25
     root_dir = os.path.join("/app/image")
+    min_box_area = 1000
     files = get_image_list(root_dir, pattern="resize*", recursive=True)
+
     for file in files:
-        detector = CircleDetector(file, output_dir="/app/image/output")
-        detector.detect(minDist=20, param1=50, param2=30, minRadius=25, maxRadius=40)
+        box_detector = BoxDetector(file, output_dir="/app/image/output")
+        circle_detector = CircleDetector(file, output_dir="/app/image/output")
+        box_detector.detect(n_box=50, min_box_area=min_box_area)
+        circle_detector.detect(
+            minDist=20, param1=50, param2=30, minRadius=25, maxRadius=40
+        )

@@ -313,7 +313,7 @@ class BoxDetector:
 
         # Save the image with bounding boxes drawn
         cv2.imwrite(
-            os.path.join(self.output_dir, f"{self.file_name}_box.png"),
+            os.path.join(self.output_dir, f"{self.file_name[6:]}_box.png"),
             original_copy,
         )
         logging.info("Saved image with bounding boxes.")
@@ -328,7 +328,7 @@ class CircleDetector(BoxDetector):
         if blur_size is not None:
             self.gray_img = cv2.GaussianBlur(self.gray_img, blur_size, 0)
 
-    def detect(self, minDist=20, param1=50, param2=30, minRadius=30, maxRadius=40):
+    def detect(self, minDist=20, param1=50, param2=30, minRadius=25, maxRadius=40):
         circles = cv2.HoughCircles(
             self.gray_img,
             cv2.HOUGH_GRADIENT,
@@ -432,7 +432,7 @@ class CircleDetector(BoxDetector):
             logging.info(f"Saved box {i} at position {positions[i]}.")
         # Save the image with detected circles
         cv2.imwrite(
-            os.path.join(self.output_dir, f"{self.file_name}_circle.png"),
+            os.path.join(self.output_dir, f"{self.file_name[6:]}_circle.png"),
             original_copy,
         )
         logging.info("Saved image with detected circles.")
