@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import logging
 from utils import extract_path_and_filename, extract_formtype_from_path
-
+from data import box_dict, circle_dict
 
 # todo
 # 1. experiment by form type (statistics): bounding box (x,y,h,w) histogram / how many detected by form
@@ -101,40 +101,7 @@ class BoxDetector:
         type_flag, threshold = thresholding[0], thresholding[1]
         img_binary = self.threshold(type_flag, threshold)
 
-        # Define form-specific lambda functions for boundingRect filtering
-        form_filters = {
-            "TS01": lambda x, y: 200 < y < 400 or 2400 < y < 3200,
-            "TS02A": lambda x, y: 200 < y < 1000
-            or (1800 < x and 1700 < y < 2500)
-            or (y > 3000),
-            "TS02B": lambda x, y: 200 < y < 300
-            or (x > 800 and 400 < y < 550)
-            or (x > 150 and 550 < y < 1100)
-            or (x > 1400 and 1100 < y < 2200)
-            or (x < 1400 and 2000 < y < 2100)
-            or (x < 1400 and 2200 < y < 2300)
-            or (x > 200 and 2400 < y < 3200),
-            "TS03": lambda x, y: 200 < y < 450 or (2400 < y < 2600),
-            "TS04": lambda x, y: 200 < y < 400
-            or (x < 1000 and 700 < y < 2200)
-            or (2500 < y < 3200),
-            "TS05A": lambda x, y: 200 < y < 500
-            or (x > 1800 and 800 < y < 900)
-            or (900 < y < 1000)
-            or (x > 1800 and 1800 < y < 2300)
-            or (x > 1900 and 2600 < y < 2900)
-            or (3100 < y < 3200),
-            "TS05B": lambda x, y: 200 < y < 400
-            or (x > 900 and 500 < y < 600)
-            or (x > 1300 and 1200 < y < 2300)
-            or (2100 < y < 2400),
-            "TS06": lambda x, y: x > 150
-            and 200 < y < 300
-            or (x > 900 and 900 < y < 1100)
-            or (1100 < y < 1200)
-            or (x > 700 and 1200 < y < 2600),
-        }
-
+        form_filters = box_dict["filter"]
         # Select the appropriate filter function based on the form type
         selected_filter = form_filters.get(
             self.formtype, lambda x, y: x > 150 and 200 < y < 3200
@@ -181,69 +148,7 @@ class BoxDetector:
             if not is_nested:
                 non_nested_cnts.append((c, rect))
 
-        form_y_sorters = {
-            "TS01": [(None, 400), (2400, None)],
-            "TS02A": [
-                (None, 400),
-                (400, 850),
-                (850, 1000),
-                (1700, 1950),
-                (2000, 2150),
-                (2150, 2350),
-                (3000, None),
-            ],
-            "TS02B": [
-                (None, 300),
-                (400, 550),
-                (550, 750),
-                (750, 900),
-                (900, 1100),
-                (1100, 1400),
-                (1400, 1600),
-                (1900, 2100),
-                (2100, 2200),
-                (2200, 2300),
-                (2300, None),
-            ],
-            "TS03": [(None, 450), (2400, None)],
-            "TS04": [
-                (None, 350),
-                (350, 1000),
-                (1000, 1500),
-                (1500, 1900),
-                (1900, 2400),
-                (2400, 2800),
-                (2800, None),
-            ],
-            "TS05A": [
-                (None, 300),
-                (300, 500),
-                (750, 900),
-                (900, 1100),
-                (1700, 2000),
-                (2000, 2200),
-                (2200, 2400),
-                (2500, 2900),
-                (2900, None),
-            ],
-            "TS05B": [
-                (None, 400),
-                (400, 700),
-                (1100, 1400),
-                (1400, 1700),
-                (2000, 2250),
-                (2250, None),
-            ],
-            "TS06": [
-                (None, 400),
-                (900, 1100),
-                (1100, 1250),
-                (1250, 1500),
-                (1800, 2200),
-                (2200, None),
-            ],
-        }
-
+        form_y_sorters = box_dict["sort"]
         # Select the appropriate y sorter based on the form type
         selected_y = form_y_sorters.get(self.formtype, None)
 
@@ -323,12 +228,17 @@ class BoxDetector:
 
 class CircleDetector(BoxDetector):
 
-    def __init__(self, file_path, blur_size=(3, 3), output_dir=None):
+    def __init__(
+        self, file_path, blur_size=(3, 3), min_black_pixel=100, output_dir=None
+    ):
         super().__init__(file_path, output_dir)
+        self.th = min_black_pixel
         if blur_size is not None:
             self.gray_img = cv2.GaussianBlur(self.gray_img, blur_size, 0)
 
-    def detect(self, minDist=20, param1=50, param2=30, minRadius=25, maxRadius=40):
+    def detect(
+        self, minDist=20, param1=50, param2=30, minRadius=25, maxRadius=40, margin=5
+    ):
         circles = cv2.HoughCircles(
             self.gray_img,
             cv2.HOUGH_GRADIENT,
@@ -348,75 +258,52 @@ class CircleDetector(BoxDetector):
         # convert the (x, y) coordinates and radius of the circles to integers
         circles = np.round(circles[0, :].astype("int"))
 
+        # Define lambda helper for filter
+        def in_y_bounds(y, bounds):
+            return (bounds[0] is None or y >= bounds[0]) and (
+                bounds[1] is None or y < bounds[1]
+            )
+
         # Define form-specific lambda functions for boundingRect filtering
-        form_filters = {
-            "TS01": lambda x, y: x > 1400 and 800 < y < 2400,
-            "TS02A": lambda x, y: x > 1200
-            and 400 < y < 600
-            or (x < 800 and 700 < y < 800)
-            or (x > 1400 and 750 < y < 1000)
-            or (x < 800 and 1000 < y < 1100)
-            or (x < 1800 and 1150 < y < 1300)
-            or (1300 < y < 1500)
-            or (1500 < y < 1750)
-            or (x < 1200 and 1750 < y < 1900)
-            or (x < 1200 and 1900 < y < 2050)
-            or (x < 1450 and 2050 < y < 2200)
-            or (x < 1450 and 2200 < y < 2400)
-            or (2400 < y < 3150),
-            "TS02B": lambda x, y: 300 < y < 500
-            or (x < 800 and 500 < y < 600)
-            or (x < 1450 and 1150 < y < 2100)
-            or (x < 1450 and 2150 < y < 2200)
-            or (1850 < x < 2000 and 2450 < y < 3300)
-            or (650 < x < 850 and 2450 < y < 3300),
-            "TS03": lambda x, y: x > 1400 and 800 < y < 2800,
-            "TS04": lambda x, y: 400 < y < 650
-            or (x > 1000 and 800 < y < 2250)
-            or (x < 200 and 600 < y < 3000)
-            or (1000 < x < 1400 and 2600 < y < 2750),
-            "TS05A": lambda x, y: 500 < y < 650
-            or (x < 800 and 750 < y < 850)
-            or (1450 < x < 1600 and 800 < y > 1000)
-            or (1000 < y < 1750)
-            or (x < 1200 and 1850 < y < 2100)
-            or (x < 1400 and 2100 < y < 2400)
-            or (2400 < y < 2650)
-            or (1150 < x < 1550 and 2650 < y < 2900)
-            or (2950 < y < 3150),
-            "TS05B": lambda x, y: 400 < y < 550
-            or (x < 800 and 550 < y < 650)
-            or (700 < y < 850)
-            or (1000 < x < 1400 and 1250 < y < 2200)
-            or (1000 < x < 1400 and 2200 < y < 2300)
-            or (x < 300 and 1250 < y < 2300)
-            or (2450 < y < 3000),
-            "TS06": lambda x, y: 400 < y < 1000
-            or (x < 800 and 1000 < y < 1100)
-            or (x < 400 and 1300 < y < 2550)
-            or (x > 1600 and 1400 < y < 1700)
-            or (x > 1850 and 1850 < y < 1950)
-            or (x > 1450 and 2600 < y < 3000),
-        }
+        form_filters = circle_dict["filter"]
+        form_y_sorters = circle_dict["sort"]
 
-        # Select the appropriate filter function based on the form type
         selected_filter = form_filters.get(self.formtype, lambda x, y: 200 < y < 3200)
+        selected_y = form_y_sorters.get(self.formtype, None)
 
-        # Filter circles based on the selected filter
         filtered_circles = [(x, y, r) for (x, y, r) in circles if selected_filter(x, y)]
 
-        # Early return if no circles passed the filter
         if not filtered_circles:
             logging.info("No circles passed the filter.")
             return None
 
+        # Sorting logic
+        if selected_y:
+            sorted_circles = []
+            for group in selected_y:
+                group_circles = [
+                    circle
+                    for circle in filtered_circles
+                    if in_y_bounds(circle[1], group)
+                ]
+                sorted_circles.extend(
+                    sorted(group_circles, key=lambda circle: circle[0])
+                )
+            logging.info("Sorted circles based on y-group and x position.")
+        else:
+            sorted_circles = sorted(
+                filtered_circles, key=lambda circle: (circle[1], circle[0])
+            )
+            logging.info("Sorted circles from top-left to bottom-right.")
+
         # Create a copy of the original image only if we have circles to draw
         original_copy = self.img.copy()
-
         positions = {}
+
         # loop over the (x, y) coordinates and radius of the circles
-        for i, (x, y, r) in enumerate(filtered_circles, 1):
-            positions[i] = (x, y, r)
+        for i, (x, y, r) in enumerate(sorted_circles, 1):
+            # positions[i] = (position, response)
+            positions[i] = {"position": (x, y, r), "black": 0, "response": 0}
             # cv2.circle(img array, center, radius, color, thickness)
             cv2.circle(original_copy, (x, y), r, (0, 255, 0), 2)
             cv2.putText(
@@ -429,7 +316,22 @@ class CircleDetector(BoxDetector):
                 2,
                 cv2.LINE_AA,
             )
-            logging.info(f"Saved box {i} at position {positions[i]}.")
+
+            # Ensure ROI boundaries are valid
+            roi_margin = max(0, r - margin)
+            roi = self.gray_img[
+                max(0, y - roi_margin) : y + roi_margin,
+                max(0, x - roi_margin) : x + roi_margin,
+            ]
+            _, binary = cv2.threshold(roi, -1, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+
+            # count the number of 'black' pixels
+            pixels = np.sum(binary == 0)
+            positions[i]["black"] = pixels
+            if pixels >= self.th:
+                positions[i]["response"] = 1  # response = 1 (checked)
+
+            logging.info(f"Processed circle {i} with position {positions[i]}.")
         # Save the image with detected circles
         cv2.imwrite(
             os.path.join(self.output_dir, f"{self.file_name[6:]}_circle.png"),
