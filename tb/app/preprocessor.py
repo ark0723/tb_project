@@ -82,8 +82,8 @@ class ImageProcessor:
         resized_img = self.resize(
             detected_positions, img_gray, h, w, file_dir, file, save
         )
-        if resized_img is not None:
-            self.extract_bounding_boxes(resized_img, file_dir, form_type, save=save)
+        # if resized_img is not None:
+        #     self.extract_bounding_boxes(resized_img, file_dir, form_type, save=save)
 
     def resize(self, detected_positions, img_gray, h, w, file_dir, file, save=True):
         """Handle the affine or perspective transformation based on detected positions."""

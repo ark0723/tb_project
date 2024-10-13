@@ -17,4 +17,13 @@ venv.bak/
 tb/app/test/
 tb/app/train/
 tb/tmp/
-
+tb/dataset
+tb/image/TS01
+tb/image/TS02A
+tb/image/TS02B
+tb/image/TS03
+tb/image/TS04
+tb/image/TS05A
+tb/image/TS05B
+tb/image/TS06
+tb/image/original

@@ -68,6 +68,28 @@ def move_to_folder(current_path, new_folder_path, file):
     shutil.move(current_path, new_file_path)
 
 
+def move_files_to_parent(base_dir, pattern="resize*"):
+    # Traverse through all directories and subdirectories in base_dir
+    for root, dirs, files in os.walk(base_dir):
+        for file in files:
+            if fnmatch.fnmatch(file, pattern):
+                # Get the current directory path
+                current_dir = os.path.basename(os.path.dirname(root))
+
+                # Construct the source file path
+                src_file_path = os.path.join(root, file)
+
+                # Define the target directory (parent folder)
+                target_dir = os.path.join(base_dir, current_dir)
+
+                # Move the file to the target directory (parent)
+                target_file_path = os.path.join(target_dir, file)
+
+                # Move the file
+                shutil.move(src_file_path, target_file_path)
+                print(f"Moved {file} to {target_dir}")
+
+
 def save_image(image, directory, filename):
     cv2.imwrite(os.path.join(directory, filename), image)
 
