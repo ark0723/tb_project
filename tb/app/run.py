@@ -1,23 +1,15 @@
 # https://github.com/MinkyungPark/docker_data_science
 # https://ebbnflow.tistory.com/340
 
-import os, glob
-import numpy as np
-
-# from preprocess import classify_and_preprocess
-# from preprocessor import ImageProcessor
-# from boundingbox import BoxDetector, CircleDetector, compare_thresholding
-# from utils import get_image_list, check_formtype_from_path, move_files_to_parent
 from dataset_loader import DataLoader
 import albumentations as A
-from tb.app.train import train_yolo
+from train import YoloModel
+import os
 
 if __name__ == "__main__":
     image_dir = "/dataset/images/"
     label_dir = "/dataset/labels/"
-    output_dir = (
-        "/dataset/"  # Output directory where the split and augmented data will be saved
-    )
+    output_dir = "/dataset/"
 
     augmentations = A.Compose(
         [
@@ -28,11 +20,14 @@ if __name__ == "__main__":
         bbox_params=A.BboxParams(format="yolo", label_fields=["class_labels"]),
     )
 
-    dataloader = DataLoader(
+    # prepare augmented dataset for YOLO11n
+    DataLoader(
         image_dir=image_dir,
         label_dir=label_dir,
         output_dir=output_dir,
         augmentations=augmentations,
-    )
+    )()
 
-    dataloader()
+    yolo11 = YoloModel()
+    yolo11.update()
+    yolo11.predict()

@@ -1,6 +1,6 @@
+from sklearn.model_selection import train_test_split
 import os
 import shutil
-from sklearn.model_selection import train_test_split
 import cv2
 
 
@@ -12,12 +12,14 @@ class DataLoader:
         output_dir,
         augmentations=None,
         test_size=0.2,
+        val_size=0.2,
         random_state=42,
     ):
         self.image_dir = image_dir
         self.label_dir = label_dir
         self.output_dir = output_dir
         self.test_size = test_size
+        self.val_size = val_size
         self.random_state = random_state
 
         self.augmentor = augmentations
@@ -38,14 +40,29 @@ class DataLoader:
             yield img, lbl
 
     def split_dataset(self):
-        """Splits the dataset into training and validation sets."""
-        train_images, val_images, train_labels, val_labels = train_test_split(
+        """Splits the dataset into training, validation, and test sets."""
+        # First split into train+val and test sets
+        train_images, test_images, train_labels, test_labels = train_test_split(
             self.image_paths,
             self.label_paths,
             test_size=self.test_size,
             random_state=self.random_state,
         )
-        return train_images, val_images, train_labels, val_labels
+        # Further split the train set into train and validation sets
+        train_images, val_images, train_labels, val_labels = train_test_split(
+            train_images,
+            train_labels,
+            test_size=self.val_size,
+            random_state=self.random_state,
+        )
+        return (
+            train_images,
+            val_images,
+            test_images,
+            train_labels,
+            val_labels,
+            test_labels,
+        )
 
     def copy_images_and_labels(self, images, labels, split):
         """Copies images and labels to train/val directories."""
@@ -117,17 +134,22 @@ class DataLoader:
 
     def __call__(self):
         # split dataset
-        train_images, val_images, train_labels, val_labels = self.split_dataset()
+        train_images, val_images, test_images, train_labels, val_labels, test_labels = (
+            self.split_dataset()
+        )
 
         # Create directories for saving results
         os.makedirs(os.path.join(self.output_dir, "images/train"), exist_ok=True)
         os.makedirs(os.path.join(self.output_dir, "images/val"), exist_ok=True)
+        os.makedirs(os.path.join(self.output_dir, "images/test"), exist_ok=True)
         os.makedirs(os.path.join(self.output_dir, "labels/train"), exist_ok=True)
         os.makedirs(os.path.join(self.output_dir, "labels/val"), exist_ok=True)
+        os.makedirs(os.path.join(self.output_dir, "labels/test"), exist_ok=True)
 
         # Copy training and validation images and labels
         self.copy_images_and_labels(train_images, train_labels, split="train")
         self.copy_images_and_labels(val_images, val_labels, split="val")
+        self.copy_images_and_labels(test_images, test_labels, split="test")
 
         # Augment training data
         if self.augmentor is not None:
