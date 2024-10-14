@@ -7,6 +7,7 @@ services:
       - ./tb/app:/app # Map app directory to /app in container
       - ./tb/image:/image
       - ./tb/dataset:/dataset
+      - ./tb/yolo_output:/yolo_output
     ports:
       - "8000:8000" 
     command: >

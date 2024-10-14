@@ -24,6 +24,9 @@ class YoloModel(Model):
         # Load the pre-trained YOLOv11 model if model_path None
         self.model = YOLO("yolo11n.pt") if model_path is None else YOLO(model_path)
 
+    def load_model(self, model_path="/runs/train/exp/weights/best.pt"):
+        self.model = YOLO(model_path)
+
     def update(
         self,
         data="/dataset/augmented_data.yaml",
@@ -31,7 +34,8 @@ class YoloModel(Model):
         imgsz=640,
         batch=16,
         workers=4,
-        save_dir="/dataset/",
+        save_dir=None,
+        verbose=True,
     ):
 
         self.resize = imgsz
@@ -45,75 +49,86 @@ class YoloModel(Model):
                 batch=batch,
                 workers=workers,
                 save_dir=save_dir,
+                verbose=verbose,
             )
             self.model_path = os.path.join(save_dir, "weights/best.pt")
         else:
             self.model.train(
-                data=data, epochs=epochs, imgsz=imgsz, batch=batch, workers=workers
+                data=data,
+                epochs=epochs,
+                imgsz=imgsz,
+                batch=batch,
+                workers=workers,
+                verbose=verbose,
             )
             self.model_path = "/runs/train/exp/weights/best.pt"
 
         # Validate the model on the test set (if specified in data.yaml)
-        metrics = self.model.val()
-        print(f"Model mAP: {metrics.box.map}")
+        metrics = self.model.val(save_json=True)
 
-    def resize_image(self, image):
-        """Resize image to the target size, return the resized image and its original dimensions."""
-        h, w = image.shape[:2]
-        resized_image = cv2.resize(image, (self.resize, self.resize))
-        return resized_image, (h, w)
-
-    def rescale_boxes(self, boxes, original_shape):
-        """Rescale bounding boxes to the original image size."""
-        orig_h, orig_w = original_shape
-        scale_x = orig_w / self.resize
-        scale_y = orig_h / self.resize
-
-        # Rescale bounding boxes
-        boxes[:, [0, 2]] *= scale_x  # Rescale x-coordinates
-        boxes[:, [1, 3]] *= scale_y  # Rescale y-coordinates
-
-        return boxes
-
-    def predict_one(self, image_path, output_dir):
-        """Predict bounding boxes on a single image and save results."""
-        # Load and resize the image
-        img = cv2.imread(image_path)
-        resized_img, original_shape = self.resize_image(img)
-
-        # Perform inference on the resized image
-        results = self.model(resized_img)
-
-        # Rescale bounding boxes to the original image size
-        boxes = results[0].boxes.xyxy.cpu().numpy()
-        boxes = self.rescale_boxes(boxes, original_shape)
-
-        # Draw bounding boxes on the original image
-        for box in boxes:
-            x_min, y_min, x_max, y_max = map(int, box)
-            cv2.rectangle(img, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
-
-        # Save the image with bounding boxes
-        fname = os.path.basename(image_path)
-        cv2.imwrite(os.path.join(output_dir, fname), img)
-
-    def predict(self, image_dir="/dataset/images/test", output_dir="/image/output/"):
+    def predict(
+        self,
+        image_dir="/dataset/images/test",
+        output_dir="/yolo_output",
+        font_scale=0.9,
+        font_thickness=1,
+    ):
         """Batch predict bounding boxes on multiple images."""
 
         # Create the output directory if it doesn't exist
-        os.makedirs(os.path.join(output_dir, "yolo"), exist_ok=True)
+        os.makedirs(os.path.join(output_dir, "test_result"), exist_ok=True)
 
         # Get all images in the directory
         image_paths = glob.glob(os.path.join(image_dir, "*.png"))
 
         # Use YOLO's batch processing for inference
-        results = self.model(image_paths, imgsz=self.resize)
+        results = self.model(image_paths)
 
-        # Loop over results and save images with bounding boxes
+        # Loop over results and save images with custom bounding boxes and labels
         for result in results:
-            img_with_boxes = result.plot()
+            img = cv2.imread(result.path)  # Read the image
+
+            # Loop over detected boxes in the result
+            for box in result.boxes:
+                # Get bounding box coordinates
+                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
+
+                # Get the class label and confidence score
+                label = int(box.cls.cpu().numpy()[0])  # Extract label
+                confidence = box.conf.cpu().numpy()[0]  # Extract confidence
+
+                # Customize font, color, and thickness for bounding boxes and text
+                box_color = (0, 0, 255)  # Red color for boxes
+                text_color = (255, 0, 0)  # blue color for labels
+                label_text = f"Class: {label} ({confidence:.2f})"
+
+                # Draw the bounding box
+                cv2.rectangle(
+                    img, (x1, y1), (x2, y2), box_color, 2
+                )  # Box thickness of 2
+
+                # Put the label above the box without the white background
+                text_size = cv2.getTextSize(
+                    label_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness
+                )[0]
+                text_x, text_y = x1, (
+                    y1 - 10 if y1 - 10 > 10 else y1 + 10
+                )  # Prevent text from going out of bounds
+                cv2.putText(
+                    img,
+                    label_text,
+                    (text_x, text_y),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    font_scale,
+                    text_color,
+                    font_thickness,
+                    lineType=cv2.LINE_AA,
+                )
+
+            # Save the image with bounding boxes
             fname = os.path.basename(result.path)
-            cv2.imwrite(os.path.join(output_dir, fname), img_with_boxes)
+            output_path = os.path.join(output_dir, "test_result", fname)
+            cv2.imwrite(output_path, img)
 
 
 """
