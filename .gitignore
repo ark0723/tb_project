@@ -13,6 +13,9 @@ venv.bak/
 # vscode
 .vscode/
 
+# yolo pretrained weights
+tb/app\yolo11n.pt
+
 # exclude large size files
 tb/app/test/
 tb/app/train/
