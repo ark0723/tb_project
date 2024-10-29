@@ -1,0 +1,21 @@
+<train>
+epochs = 100
+batch = 16
+optimizer = "AdamW"
+box = 9.95
+cls=0.85
+lr0=0.0005
+imgsz = 1280
+patience = 10
+60 epochs completed in 0.692 hours.
+
+<train2>
+epochs = 100
+batch = 16
+optimizer = "AdamW"
+box = 8.0
+cls=0.95
+lr0=0.0008
+imgsz = 1280
+patience = 5
+54 epochs completed in 0.384 hours
